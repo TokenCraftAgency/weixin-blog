@@ -1,0 +1,23 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "weixin-blog",
+	"compatibility_date": "2026-09-01",
+	"main": "worker/index.ts",
+	"assets": {
+		"directory": "dist/client",
+		// 未命中静态资产的前端路由（如 /post/42）回退到 index.html
+		"not_found_handling": "single-page-application",
+		"binding": "ASSETS"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "BLOG_KV",
+			// 部署前执行 npx wrangler kv namespace create BLOG_KV，把返回的 id 填到这里
+			"id": "",
+			"remote": true
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

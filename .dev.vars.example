@@ -1,0 +1,2 @@
+# 本地开发 secret（wrangler dev 自动加载），复制为 .dev.vars 后按需修改
+BLOG_API_TOKEN=dev-token-123
