@@ -3,8 +3,14 @@ import { Link } from 'react-router-dom';
 import { useAdmin } from '../admin';
 import { deletePost, fetchPosts, SiteLockedError } from '../api';
 import { alertDlg, confirmDlg } from '../ui';
+import { HomeSkeleton } from '../components/Skeletons';
 import BlockedPage from './BlockedPage';
 import type { BlogPostSummary } from '../../shared/types';
+
+/** 下拉刷新：触发阈值（px）与阻尼系数/最大拉伸 */
+const PTR_THRESHOLD = 56;
+const PTR_DAMPING = 0.4;
+const PTR_MAX = 88;
 
 const fmtDate = (ts: number) =>
   new Date(ts).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -67,6 +73,57 @@ export default function HomePage() {
       }
     },
   });
+
+  // ---- 下拉刷新：仅页面顶部起拉，阻尼折算，过阈值松手重拉第一页 ----
+  const [ptrOffset, setPtrOffset] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const ptrStartYRef = useRef<number | null>(null);
+  const ptrActiveRef = useRef(false);
+
+  const onPtrStart = (e: React.TouchEvent) => {
+    if (refreshing) return;
+    ptrActiveRef.current = false;
+    ptrStartYRef.current = window.scrollY <= 0 ? e.touches[0].clientY : null;
+  };
+
+  const onPtrMove = (e: React.TouchEvent) => {
+    if (ptrStartYRef.current === null || refreshing) return;
+    const dy = e.touches[0].clientY - ptrStartYRef.current;
+    if (dy > 0) {
+      if (window.scrollY > 0) return; // 已向上滚走，放弃本次判定
+      ptrActiveRef.current = true;
+      setPtrOffset(Math.min(PTR_MAX, dy * PTR_DAMPING));
+    } else {
+      ptrStartYRef.current = null; // 手指上移（滚动意图），取消本次判定
+      setPtrOffset(0);
+    }
+  };
+
+  const onPtrEnd = async () => {
+    ptrStartYRef.current = null;
+    if (!ptrActiveRef.current || refreshing) return;
+    ptrActiveRef.current = false;
+    if (ptrOffset < PTR_THRESHOLD) {
+      setPtrOffset(0);
+      return;
+    }
+    setRefreshing(true);
+    setPtrOffset(PTR_THRESHOLD); // 刷新期间保持指示器可见
+    try {
+      const r = await fetchPosts(0, 10, keyword);
+      setPosts(r.posts);
+      setHasMore(r.hasMore);
+      setTotal(r.total);
+      setError('');
+      setLocked(false);
+    } catch (err) {
+      if (err instanceof SiteLockedError) setLocked(true);
+      else setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+      setPtrOffset(0);
+    }
+  };
 
   // 首屏 / 关键字变化：回到第 1 页重新拉取
   useEffect(() => {
@@ -142,7 +199,21 @@ export default function HomePage() {
   }
 
   return (
-    <>
+    <div
+      className="home"
+      style={{ touchAction: ptrOffset > 0 || refreshing ? 'none' : undefined }}
+      onTouchStart={onPtrStart}
+      onTouchMove={onPtrMove}
+      onTouchEnd={onPtrEnd}
+      onTouchCancel={onPtrEnd}
+    >
+      {/* 下拉刷新指示器（占高推出内容） */}
+      <div className="ptr" style={{ height: ptrOffset }} aria-hidden="true">
+        <div className="ptr__inner">
+          <span className={`ptr__spinner${refreshing ? ' is-spin' : ''}`} />
+          <span>{refreshing ? '正在刷新…' : ptrOffset >= PTR_THRESHOLD ? '松开立即刷新' : '下拉可以刷新'}</span>
+        </div>
+      </div>
       <div className="home-hero">
         <h1>文章</h1>
         <p>写作、洗稿任务完成后自动同步至此{total > 0 ? ` · ${keyword ? `匹配 ${total} 篇` : `共 ${total} 篇`}` : ''}</p>
@@ -163,7 +234,7 @@ export default function HomePage() {
         <button type="submit">搜索</button>
       </form>
       {error && <div className="state state--error">{error}</div>}
-      {!error && posts === null && <div className="state">加载中…</div>}
+      {!error && posts === null && <HomeSkeleton />}
       {posts && (
         <>
           {posts.length === 0 && (
@@ -216,6 +287,6 @@ export default function HomePage() {
           {hasMore && <div ref={sentinelRef} className="state">{loadingMore ? '加载中…' : ''}</div>}
         </>
       )}
-    </>
+    </div>
   );
 }

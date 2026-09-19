@@ -1089,6 +1089,111 @@ img {
   color: var(--green-dark);
 }
 
+/* ---- 骨架屏（shimmer 占位，与真实卡片同构） ---- */
+.sk {
+  border-radius: 8px;
+  background: linear-gradient(90deg, #edf1ef 25%, #f7faf8 50%, #edf1ef 75%);
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.3s linear infinite;
+}
+
+@keyframes sk-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.sk__cover {
+  flex: none;
+  width: 132px;
+  height: 92px;
+  border-radius: 10px;
+}
+
+.sk__line {
+  height: 14px;
+  margin-top: 10px;
+}
+
+.sk__line--title {
+  height: 19px;
+  width: 72%;
+  margin-top: 0;
+}
+
+.sk__line--short {
+  width: 48%;
+}
+
+.sk__line--mid {
+  width: 64%;
+}
+
+.sk__line--h1 {
+  height: 28px;
+  width: 58%;
+  border-radius: 10px;
+}
+
+.sk__line--meta {
+  height: 12px;
+  width: 32%;
+  margin-top: 14px;
+}
+
+.sk__block {
+  height: 220px;
+  margin-top: 24px;
+  border-radius: 10px;
+}
+
+.sk__chip {
+  width: 52px;
+  height: 16px;
+  margin-top: 14px;
+  border-radius: 999px;
+}
+
+/* ---- 首页下拉刷新指示器（高度由 JS 驱动） ---- */
+.ptr {
+  overflow: hidden;
+  transition: height 0.2s ease-out;
+}
+
+.ptr__inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 88px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.ptr__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  transition: transform 0.2s;
+  /* 下拉时随拉伸旋转 */
+  transform: rotate(0deg);
+}
+
+.ptr__spinner.is-spin {
+  animation: ptr-rotate 0.8s linear infinite;
+}
+
+@keyframes ptr-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---- 移动端适配（断点覆盖，不改桌面基线规则） ---- */
 
 /* 平板/大手机：导航单行紧凑 + 设置页收缩 */
@@ -1178,6 +1283,13 @@ img {
     aspect-ratio: 16 / 9;
   }
 
+  /* 骨架屏封面与真实封面同步布局 */
+  .sk__cover {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+
   .post-card__title {
     font-size: 16px;
   }
@@ -1188,6 +1300,11 @@ img {
 
   .post {
     padding: 22px 18px 32px;
+    /* 满屏出血：用负 margin 抵消 .main 左右 14px 内边距，去边框去圆角 */
+    margin: 0 -14px;
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
   }
 
   .post__meta {

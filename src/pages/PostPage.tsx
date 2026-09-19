@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAdmin } from '../admin';
 import { deletePost, fetchPost, fetchPostByShortId, SiteLockedError } from '../api';
 import { alertDlg, confirmDlg, copyDlg } from '../ui';
+import { PostSkeleton } from '../components/Skeletons';
 import BlockedPage from './BlockedPage';
 import type { BlogPost } from '../../shared/types';
 
@@ -147,7 +148,7 @@ export default function PostPage() {
   if (locked) {
     return <BlockedPage detail="此文章通过 id 访问仅限管理员，也可通过分享短链接访问" />;
   }
-  if (!post) return <div className="state">加载中…</div>;
+  if (!post) return <PostSkeleton />;
 
   // 底部展示；过滤掉带「提交者」的标签（提交人已由 meta 行的 author 呈现，不重复）
   const visibleTags = post.tags.filter((t) => !t.includes('提交者'));
