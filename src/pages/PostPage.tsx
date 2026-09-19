@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAdmin } from '../admin';
-import { deletePost, fetchPost, fetchPostByShortId } from '../api';
+import { deletePost, fetchPost, fetchPostByShortId, SiteLockedError } from '../api';
 import type { BlogPost } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
@@ -63,6 +63,7 @@ export default function PostPage() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [locked, setLocked] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -78,7 +79,14 @@ export default function PostPage() {
         if (p === null) setNotFound(true);
         else setPost(p);
       })
-      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof SiteLockedError) {
+          setLocked(true);
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      });
     return () => {
       cancelled = true;
     };
@@ -130,6 +138,17 @@ export default function PostPage() {
     );
   }
   if (error) return <div className="state state--error">{error}</div>;
+  if (locked) {
+    return (
+      <div className="state">
+        此文章通过 id 访问仅限管理员
+        <br />
+        <Link to="/admin/login" className="post__back">
+          管理员登录
+        </Link>
+      </div>
+    );
+  }
   if (!post) return <div className="state">加载中…</div>;
 
   return (

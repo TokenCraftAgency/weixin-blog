@@ -34,7 +34,9 @@ npm run dev        # concurrently：vite(5173) + wrangler dev(8787)
 
 | 方法 | 路径 | 认证 | 说明 |
 |---|---|---|---|
-| GET | `/api/posts` | 公开 | 文章列表（按创建时间倒序；`?q=` 按 id/标题关键字过滤；`?limit=&offset=` 分页，返回 `total`/`hasMore`） |
+| GET | `/api/config` | 公开 | 站点配置（当前访问模式 public/admin） |
+| PUT | `/api/admin/config` | Bearer / 会话 | 修改访问模式（管理员设置页） |
+| GET | `/api/posts` | 公开* | 文章列表（按创建时间倒序；`?q=` 按 id/标题关键字过滤；`?limit=&offset=` 分页，返回 `total`/`hasMore`） |
 | GET | `/api/posts/short/:shortId` | 公开 | 文章详情（按 6 位短 ID，分享链接链路） |
 | GET | `/img/:key` | 公开 | 静态图片（内容哈希键，immutable + KV 边缘缓存） |
 | PUT | `/api/posts/:sourceId` | Bearer | 同步/更新文章（幂等，同 id 覆盖不重复） |
@@ -66,6 +68,15 @@ DELETE /api/posts/42 → 200 { "ok": true, "deleted": true } / 404
 CORS 白名单：`https://mp.weixin.qq.com`（油猴脚本）+ `http://localhost:5173`（本地联调）。
 
 **双入口访问**：文章详情有两种 URL——站内列表点击走 `/post/<文章id>`；外部分享走 `/#<短ID>`（如 `https://weixin-blog.g11.workers.dev/#ab3def`，前端重定向到 `/s/<短ID>` 渲染同一篇）。短 ID 在首次同步（PUT）时由服务端随机生成（6 位、去易混字符 0/o/1/i/l），重复同步保持不变；用于分享时防止文章 id 被推理遍历。存量旧文章在下次同步时自动补发短 ID。
+
+注：标记为「公开*」的接口在「管理员访问」模式下需携带凭证（见下节）。
+
+## 管理员设置
+
+入口 `/admin/settings`（登录后导航栏「设置」），可切换网站访问权限（存 KV `config:site`，服务端强制）：
+
+- **公开访问**（默认）：任何人可访问全部页面与接口。
+- **管理员访问**：首页列表数据（`GET /api/posts`）与按文章 id 的详情（`GET /api/posts/:id`）仅对携带管理员会话/API Token 者开放，未登录返回 403（前端呈现登录引导）；文章分享短链接（`/api/posts/short/:shortId`）、图片、关于页对所有人开放。
 
 ## 管理员登录
 

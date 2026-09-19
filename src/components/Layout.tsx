@@ -22,16 +22,21 @@ export default function Layout({ children }: { children: ReactNode }) {
               关于
             </NavLink>
             {isAuthed ? (
-              <button
-                type="button"
-                className="nav__admin"
-                onClick={() => {
-                  logout();
-                  navigate('/');
-                }}
-              >
-                退出
-              </button>
+              <>
+                <NavLink to="/admin/settings" className={({ isActive }) => (isActive ? 'nav__admin is-active' : 'nav__admin')}>
+                  设置
+                </NavLink>
+                <button
+                  type="button"
+                  className="nav__admin"
+                  onClick={() => {
+                    logout();
+                    navigate('/');
+                  }}
+                >
+                  退出
+                </button>
+              </>
             ) : (
               <NavLink to="/admin/login" className="nav__admin">
                 管理员

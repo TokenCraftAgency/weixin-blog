@@ -4,6 +4,7 @@ import AboutPage from './pages/AboutPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import PostPage from './pages/PostPage';
+import SettingsPage from './pages/SettingsPage';
 
 /** 分享链接 /#<6位短ID> → /s/<短ID>（仅在进入时 hash 匹配短 ID 字符集才接管，不碰其他 hash） */
 const HASH_SHORT_RE = /^#([23456789a-hjkmnp-tv-z]{6})$/i;
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/s/:shortId" element={<PostPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/admin/login" element={<LoginPage />} />
+        <Route path="/admin/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>
   );

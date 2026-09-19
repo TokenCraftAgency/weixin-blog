@@ -1,7 +1,19 @@
-import type { BlogPost, BlogPostSummary } from '../shared/types';
+import type { BlogPost, BlogPostSummary, SiteAccess } from '../shared/types';
 
 /** 列表索引键（KV 无范围查询，用单个索引数组键承载列表） */
 const INDEX_KEY = 'index:posts';
+
+/** 站点配置键（访问模式等管理员设置） */
+const SITE_CONFIG_KEY = 'config:site';
+
+/** 读站点访问模式；未配置时默认公开 */
+export async function getSiteAccess(kv: KVNamespace): Promise<SiteAccess> {
+  return (await kv.get<string>(SITE_CONFIG_KEY)) === 'admin' ? 'admin' : 'public';
+}
+
+export async function setSiteAccess(kv: KVNamespace, access: SiteAccess): Promise<void> {
+  await kv.put(SITE_CONFIG_KEY, access);
+}
 
 const postKey = (id: string) => `post:${id}`;
 const shortKey = (sid: string) => `short:${sid}`;

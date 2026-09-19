@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import type { SyncPostInput } from '../shared/types';
-import { deletePost, getPost, getPostByShortId, getPostIndex, upsertPost } from './kv';
+import { deletePost, getPost, getPostByShortId, getPostIndex, getSiteAccess, setSiteAccess, upsertPost } from './kv';
+import type { SiteAccess } from '../shared/types';
 import { passwordOk, SESSION_TTL_MS, signSession, verifySession } from './auth';
 
 type Env = {
@@ -30,7 +31,29 @@ api.use(
 
 // ---- 公开读接口（SPA 用） ----
 
-api.get('/posts', async (c) => {
+/** 是否携带写凭证（API Token 或管理员会话）；bearer 为函数声明，可前向引用 */
+async function hasWriteCred(c: { req: { header(name: string): string | undefined }; env: Env['Bindings'] }): Promise<boolean> {
+  const token = bearer(c);
+  if (!token) return false;
+  if (c.env.BLOG_API_TOKEN && token === c.env.BLOG_API_TOKEN) return true;
+  return (await verifySession(c.env.ADMIN_PASSWORD, token)) !== null;
+}
+
+/** 站点访问门控：「管理员访问」模式下首页数据/文章本体详情仅对有凭证者开放；
+ * 短链接详情、图片、关于页不受限 */
+const requireWhenAdmin: MiddlewareHandler<Env> = async (c, next) => {
+  if ((await getSiteAccess(c.env.BLOG_KV)) === 'admin' && !(await hasWriteCred(c))) {
+    return c.json({ error: { code: 'FORBIDDEN', message: '本站已设为管理员访问，请先登录' } }, 403);
+  }
+  await next();
+};
+
+/** 站点配置（公开读：前端需要知道当前访问模式才能呈现对应入口） */
+api.get('/config', async (c) => {
+  return c.json({ access: await getSiteAccess(c.env.BLOG_KV) });
+});
+
+api.get('/posts', requireWhenAdmin, async (c) => {
   const q = (c.req.query('q') ?? '').trim().toLowerCase();
   const all = await getPostIndex(c.env.BLOG_KV);
   // ?q= 按文章 id 或标题关键字过滤（包含匹配，不区分大小写）
@@ -61,7 +84,7 @@ api.get('/posts/short/:shortId', async (c) => {
   return c.json({ post });
 });
 
-api.get('/posts/:id', async (c) => {
+api.get('/posts/:id', requireWhenAdmin, async (c) => {
   const post = await getPost(c.env.BLOG_KV, c.req.param('id'));
   if (!post) return c.json({ error: { code: 'NOT_FOUND', message: '文章不存在' } }, 404);
   return c.json({ post });
@@ -97,6 +120,19 @@ const writeAuth: MiddlewareHandler<Env> = async (c, next) => {
   }
   return c.json({ error: { code: 'UNAUTHORIZED', message: '无效或缺失的 Bearer Token' } }, 401);
 };
+
+/** 修改访问模式（仅管理员会话或 API Token） */
+const SITE_ACCESS_VALUES: SiteAccess[] = ['public', 'admin'];
+
+api.put('/admin/config', writeAuth, async (c) => {
+  const body = await c.req.json<{ access?: string }>().catch(() => null);
+  const access = body?.access;
+  if (!access || !SITE_ACCESS_VALUES.includes(access as SiteAccess)) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'access 仅支持 public / admin' } }, 400);
+  }
+  await setSiteAccess(c.env.BLOG_KV, access as SiteAccess);
+  return c.json({ ok: true, access });
+});
 
 // ---- 管理员登录：密码校验 + 失败锁定（IP + 浏览器指纹，5 次锁 15 分钟） ----
 

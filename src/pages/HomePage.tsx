@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../admin';
-import { deletePost, fetchPosts } from '../api';
+import { deletePost, fetchPosts, SiteLockedError } from '../api';
 import type { BlogPostSummary } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
@@ -15,6 +15,7 @@ export default function HomePage() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState('');
+  const [locked, setLocked] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
@@ -31,7 +32,14 @@ export default function HomePage() {
         setHasMore(r.hasMore);
         setTotal(r.total);
       })
-      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof SiteLockedError) {
+          setLocked(true);
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      });
     return () => {
       cancelled = true;
     };
@@ -75,6 +83,19 @@ export default function HomePage() {
       window.alert(err instanceof Error ? err.message : String(err));
     }
   };
+
+  // 管理员访问模式（未登录）：隐藏列表与搜索，呈现登录引导
+  if (locked) {
+    return (
+      <div className="state">
+        本站已设为管理员访问
+        <br />
+        <Link to="/admin/login" className="post__back">
+          管理员登录
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -1,7 +1,20 @@
-import type { BlogPost, BlogPostSummary } from '../shared/types';
+import type { BlogPost, BlogPostSummary, SiteAccess } from '../shared/types';
 
 /** 首页文章列表分页页大小 */
 export const POSTS_PAGE_SIZE = 10;
+
+/** 站点设为管理员访问且凭证无效/缺失时抛出（页面据此呈现登录引导） */
+export class SiteLockedError extends Error {
+  constructor(message = '本站已设为管理员访问，请先登录') {
+    super(message);
+  }
+}
+
+/** 管理员已登录时附 Bearer 头（受限接口需要；未登录返回空对象） */
+function authHeaders(): Record<string, string> {
+  const session = loadToken();
+  return session ? { Authorization: `Bearer ${session.value}` } : {};
+}
 
 /** 首页文章列表（按 offset 分页，滚动加载；q 为标题/id 关键字过滤）；网络/服务错误抛出，由页面展示错误态 */
 export async function fetchPosts(
@@ -11,7 +24,8 @@ export async function fetchPosts(
 ): Promise<{ posts: BlogPostSummary[]; total: number; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (q.trim()) params.set('q', q.trim());
-  const res = await fetch(`/api/posts?${params.toString()}`);
+  const res = await fetch(`/api/posts?${params.toString()}`, { headers: authHeaders() });
+  if (res.status === 403) throw new SiteLockedError(await readErrorMessage(res));
   if (!res.ok) throw new Error(`加载文章列表失败（${res.status}）`);
   const data = (await res.json()) as {
     posts: BlogPostSummary[];
@@ -21,10 +35,17 @@ export async function fetchPosts(
   return { posts: data.posts, total: data.total, hasMore: data.hasMore === true };
 }
 
-/** 文章详情（列表入口，按文章 id）；404 返回 null，其余非 200 抛出 */
+/** 读取接口错误体中的 message（解析失败返回空串） */
+async function readErrorMessage(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+  return data?.error?.message ?? '';
+}
+
+/** 文章详情（列表入口，按文章 id）；404 返回 null，403 抛 SiteLockedError，其余非 200 抛出 */
 export async function fetchPost(id: string): Promise<BlogPost | null> {
-  const res = await fetch(`/api/posts/${encodeURIComponent(id)}`);
+  const res = await fetch(`/api/posts/${encodeURIComponent(id)}`, { headers: authHeaders() });
   if (res.status === 404) return null;
+  if (res.status === 403) throw new SiteLockedError(await readErrorMessage(res));
   if (!res.ok) throw new Error(`加载文章失败（${res.status}）`);
   const data = (await res.json()) as { post: BlogPost };
   return data.post;
@@ -130,6 +151,32 @@ export async function adminLogin(password: string): Promise<void> {
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
   notifyAdminChange();
+}
+
+// ---- 站点配置（管理员设置页） ----
+
+/** 读当前访问模式（公开接口） */
+export async function fetchSiteConfig(): Promise<{ access: SiteAccess }> {
+  const res = await fetch('/api/config');
+  if (!res.ok) throw new Error(`加载站点配置失败（${res.status}）`);
+  const data = (await res.json()) as { access: SiteAccess };
+  return { access: data.access === 'admin' ? 'admin' : 'public' };
+}
+
+/** 修改访问模式（需管理员会话）；401/403 时清令牌提示重登 */
+export async function updateSiteAccess(access: SiteAccess): Promise<void> {
+  const session = loadToken();
+  if (!session) throw new Error('登录已过期，请重新登录');
+  const res = await fetch('/api/admin/config', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${session.value}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ access }),
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('登录已失效，请重新登录');
+  }
+  if (!res.ok) throw new Error((await readErrorMessage(res)) || `保存失败（${res.status}）`);
 }
 
 /** 删除文章（管理员会话令牌）；401 时清令牌提示重新登录 */

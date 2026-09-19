@@ -474,6 +474,11 @@ img {
   background: var(--green-light);
 }
 
+.nav__admin.is-active {
+  color: var(--green-dark);
+  background: var(--green-light);
+}
+
 /* ---- 登录页 ---- */
 .login {
   max-width: 400px;
@@ -566,6 +571,95 @@ img {
   border-radius: 10px;
   background: #fff1f0;
   color: #d4380d;
+  font-size: 13.5px;
+}
+
+/* ---- 管理员设置页 ---- */
+.settings {
+  max-width: 560px;
+  margin: 24px auto;
+  padding: 32px clamp(20px, 5vw, 40px) 36px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.settings h1 {
+  font-size: 22px;
+  margin-bottom: 20px;
+}
+
+.settings__group {
+  border: none;
+  padding: 0;
+}
+
+.settings__group legend {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 12px;
+}
+
+.settings__option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.settings__option:hover {
+  border-color: var(--green);
+}
+
+.settings__option.is-active {
+  border-color: var(--green);
+  background: var(--green-light);
+}
+
+.settings__option input[type='radio'] {
+  margin-top: 5px;
+  accent-color: var(--green);
+}
+
+.settings__option-label {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings__option-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+.settings__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.settings__dirty {
+  font-size: 13px;
+  color: #d4380d;
+}
+
+.settings__notice {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--green-light);
+  color: var(--green-dark);
   font-size: 13.5px;
 }
 
