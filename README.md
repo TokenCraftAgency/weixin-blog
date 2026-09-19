@@ -35,7 +35,9 @@ npm run dev        # concurrently：vite(5173) + wrangler dev(8787)
 | 方法 | 路径 | 认证 | 说明 |
 |---|---|---|---|
 | GET | `/api/config` | 公开 | 站点配置（当前访问模式 public/admin） |
-| PUT | `/api/admin/config` | Bearer / 会话 | 修改访问模式（管理员设置页） |
+| GET | `/api/admin/config` | Bearer / 会话 | 管理端完整配置（访问模式 + 门禁参数） |
+| PUT | `/api/admin/config` | Bearer / 会话 | 修改访问模式/门禁参数（字段可选，仅更新传入项） |
+| GET | `/api/admin/login-logs` | Bearer / 会话 | 登录日志（最近 200 条） |
 | GET | `/api/posts` | 公开* | 文章列表（按创建时间倒序；`?q=` 按 id/标题关键字过滤；`?limit=&offset=` 分页，返回 `total`/`hasMore`） |
 | GET | `/api/posts/short/:shortId` | 公开 | 文章详情（按 6 位短 ID，分享链接链路） |
 | GET | `/img/:key` | 公开 | 静态图片（内容哈希键，immutable + KV 边缘缓存） |
@@ -73,10 +75,15 @@ CORS 白名单：`https://mp.weixin.qq.com`（油猴脚本）+ `http://localhost
 
 ## 管理员设置
 
-入口 `/admin/settings`（登录后导航栏「设置」），可切换网站访问权限（存 KV `config:site`，服务端强制）：
+入口 `/admin/settings`（登录后导航栏「设置」），分段 Tab 管理：
 
-- **公开访问**（默认）：任何人可访问全部页面与接口。
-- **管理员访问**：首页列表数据（`GET /api/posts`）与按文章 id 的详情（`GET /api/posts/:id`）仅对携带管理员会话/API Token 者开放，未登录返回 403（前端呈现登录引导）；文章分享短链接（`/api/posts/short/:shortId`）、图片、关于页对所有人开放。
+- **访问权限**：切换网站访问模式（存 KV `config:site`，服务端强制）。
+  - 公开访问（默认）：任何人可访问全部页面与接口。
+  - 管理员访问：首页列表数据（`GET /api/posts`）与按文章 id 的详情（`GET /api/posts/:id`）仅对携带管理员会话/API Token 者开放，未登录返回 403（前端呈现登录引导）；文章分享短链接（`/api/posts/short/:shortId`）、图片、关于页对所有人开放。
+- **门禁设置**：登录失败锁定参数可配置（存 KV `config:gate`，默认值同下）。
+- **登录日志**：每次登录尝试记录 时间/IP/指纹前 12 位/UA/结果（成功、密码错、锁定拒绝），存 KV `log:login` 保留最近 200 条。
+
+登录锁定规则（可在门禁设置中调整）：失败同时计入「客户端 IP」与「浏览器指纹」两个独立维度（参数无效/缺失的指纹不参与，避免误伤），任一维度连续错 N 次（默认 5）即两个维度同时锁定 M 分钟（默认 15）；换浏览器（IP 不变）或换 IP（指纹不变）都无法绕过；同时改变两者则计数重置，属该方案固有边界。
 
 ## 管理员登录
 
@@ -84,7 +91,7 @@ CORS 白名单：`https://mp.weixin.qq.com`（油猴脚本）+ `http://localhost
 
 - 登录成功后颁发无状态会话令牌（HMAC-SHA256 签名，密钥由 `ADMIN_PASSWORD` 派生），**7 天免登录**，存于浏览器 localStorage。
 - 登录后首页列表卡片（悬停显现）与文章详情页显示删除按钮，删除走 `DELETE /api/posts/:id`（会话令牌鉴权）；不影响原 Bearer Token 同步链路。
-- **失败锁定**：同一「客户端 IP + 浏览器指纹」连续错 5 次锁定 15 分钟（KV 计数，锁定期间登录返回 429）。
+- **失败锁定（双维度）**：失败同时计入「客户端 IP」与「浏览器指纹」两个独立维度，任一维度连续错 5 次即两个维度同时锁定 15 分钟（KV 计数，锁定期间登录返回 429）；换浏览器（IP 不变）或换 IP（指纹不变）都无法绕过锁定。
 - 退出仅需导航栏「退出」（清本地令牌）；令牌无法服务端吊销，怀疑泄露时改 `ADMIN_PASSWORD` 可使全部会话立即失效。
 
 登录接口响应：成功 `200 { ok, token, expiresIn }`；密码错 `401 { error.remaining }`；锁定 `429 { error.retryAfter }`。

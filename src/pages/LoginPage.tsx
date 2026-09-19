@@ -79,7 +79,7 @@ export default function LoginPage() {
   return (
     <div className="login">
       <h1>管理员登录</h1>
-      <p className="login__hint">登录后即可在文章上显示删除按钮。</p>
+      <p className="login__hint">登录后即可在管理文章</p>
       <form className="login__form" onSubmit={onSubmit}>
         <input
           type="password"

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAdmin } from '../admin';
 import { deletePost, fetchPost, fetchPostByShortId, SiteLockedError } from '../api';
+import { alertDlg, confirmDlg, copyDlg } from '../ui';
+import BlockedPage from './BlockedPage';
 import type { BlogPost } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
@@ -99,11 +101,11 @@ export default function PostPage() {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.alert('复制失败，请手动复制');
+      alertDlg('复制失败，请手动复制', '提示');
     }
   };
 
-  // 分享：复制短链接 <站点>/#<短ID>（收不进剪贴板时降级 prompt 手动复制）
+  // 分享：复制短链接 <站点>/#<短ID>（剪贴板不可用时降级自定义复制弹窗）
   const onShare = async () => {
     if (!post?.shortId) return;
     const url = `${window.location.origin}/#${post.shortId}`;
@@ -113,19 +115,23 @@ export default function PostPage() {
       setShareCopied(true);
       window.setTimeout(() => setShareCopied(false), 2000);
     } catch {
-      window.prompt('复制分享链接：', url);
+      copyDlg(url, '复制分享链接');
     }
   };
 
   const onDelete = async () => {
     if (!post) return;
-    if (!window.confirm(`确认删除《${post.title}》？删除后不可恢复。`)) return;
+    const ok = await confirmDlg(`确认删除《${post.title}》？删除后不可恢复。`, {
+      title: '删除文章',
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await deletePost(post.id);
       navigate('/', { replace: true });
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      alertDlg(err instanceof Error ? err.message : String(err), '删除失败');
       setDeleting(false);
     }
   };
@@ -139,15 +145,7 @@ export default function PostPage() {
   }
   if (error) return <div className="state state--error">{error}</div>;
   if (locked) {
-    return (
-      <div className="state">
-        此文章通过 id 访问仅限管理员
-        <br />
-        <Link to="/admin/login" className="post__back">
-          管理员登录
-        </Link>
-      </div>
-    );
+    return <BlockedPage detail="此文章通过 id 访问仅限管理员，也可通过分享短链接访问" />;
   }
   if (!post) return <div className="state">加载中…</div>;
 

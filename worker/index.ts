@@ -2,8 +2,20 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import type { SyncPostInput } from '../shared/types';
-import { deletePost, getPost, getPostByShortId, getPostIndex, getSiteAccess, setSiteAccess, upsertPost } from './kv';
-import type { SiteAccess } from '../shared/types';
+import {
+  appendLoginLog,
+  deletePost,
+  getLoginLogs,
+  getPost,
+  getPostByShortId,
+  getPostIndex,
+  getGateConfig,
+  getSiteAccess,
+  setGateConfig,
+  setSiteAccess,
+  upsertPost,
+} from './kv';
+import type { LoginLogEntry, SiteAccess } from '../shared/types';
 import { passwordOk, SESSION_TTL_MS, signSession, verifySession } from './auth';
 
 type Env = {
@@ -121,67 +133,132 @@ const writeAuth: MiddlewareHandler<Env> = async (c, next) => {
   return c.json({ error: { code: 'UNAUTHORIZED', message: '无效或缺失的 Bearer Token' } }, 401);
 };
 
-/** 修改访问模式（仅管理员会话或 API Token） */
+/** 修改访问模式/门禁参数（仅管理员会话或 API Token；字段可选，仅更新传入项） */
 const SITE_ACCESS_VALUES: SiteAccess[] = ['public', 'admin'];
 
 api.put('/admin/config', writeAuth, async (c) => {
-  const body = await c.req.json<{ access?: string }>().catch(() => null);
-  const access = body?.access;
-  if (!access || !SITE_ACCESS_VALUES.includes(access as SiteAccess)) {
-    return c.json({ error: { code: 'INVALID_REQUEST', message: 'access 仅支持 public / admin' } }, 400);
+  const body = await c.req.json<{
+    access?: string;
+    failLimit?: number;
+    lockMinutes?: number;
+  }>().catch(() => null);
+  if (!body) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: '请求体不是合法 JSON' } }, 400);
   }
-  await setSiteAccess(c.env.BLOG_KV, access as SiteAccess);
-  return c.json({ ok: true, access });
+  if (body.access !== undefined) {
+    if (!SITE_ACCESS_VALUES.includes(body.access as SiteAccess)) {
+      return c.json({ error: { code: 'INVALID_REQUEST', message: 'access 仅支持 public / admin' } }, 400);
+    }
+    await setSiteAccess(c.env.BLOG_KV, body.access as SiteAccess);
+  }
+  if (body.failLimit !== undefined || body.lockMinutes !== undefined) {
+    const gate = await getGateConfig(c.env.BLOG_KV);
+    if (body.failLimit !== undefined) {
+      const n = Number(body.failLimit);
+      if (!Number.isInteger(n) || n < 1 || n > 20) {
+        return c.json({ error: { code: 'INVALID_REQUEST', message: 'failLimit 需为 1-20 的整数' } }, 400);
+      }
+      gate.failLimit = n;
+    }
+    if (body.lockMinutes !== undefined) {
+      const n = Number(body.lockMinutes);
+      if (!Number.isInteger(n) || n < 1 || n > 1440) {
+        return c.json({ error: { code: 'INVALID_REQUEST', message: 'lockMinutes 需为 1-1440 的整数' } }, 400);
+      }
+      gate.lockMinutes = n;
+    }
+    await setGateConfig(c.env.BLOG_KV, gate);
+  }
+  const [access, gate] = await Promise.all([getSiteAccess(c.env.BLOG_KV), getGateConfig(c.env.BLOG_KV)]);
+  return c.json({ ok: true, access, ...gate });
 });
 
-// ---- 管理员登录：密码校验 + 失败锁定（IP + 浏览器指纹，5 次锁 15 分钟） ----
+/** 管理端完整配置（含门禁参数，需凭证） */
+api.get('/admin/config', writeAuth, async (c) => {
+  const [access, gate] = await Promise.all([getSiteAccess(c.env.BLOG_KV), getGateConfig(c.env.BLOG_KV)]);
+  return c.json({ access, ...gate });
+});
 
-const LOGIN_FAIL_LIMIT = 5;
-const LOGIN_LOCK_SECONDS = 900;
-/** 失败计数窗口（秒），与锁定时长一致：窗口内累计 5 次即锁 */
-const LOGIN_WINDOW_SECONDS = 900;
+/** 登录日志（最近 200 条，需凭证） */
+api.get('/admin/login-logs', writeAuth, async (c) => {
+  return c.json({ logs: await getLoginLogs(c.env.BLOG_KV) });
+});
+
+// ---- 管理员登录：密码校验 + 双维度失败锁定（参数可在管理员设置页配置） ----
 
 api.post('/admin/login', async (c) => {
   if (!c.env.ADMIN_PASSWORD) {
     return c.json({ error: { code: 'CONFIG', message: '服务端未配置 ADMIN_PASSWORD' } }, 500);
   }
   const ip = c.req.header('cf-connecting-ip') ?? 'unknown';
+  const ua = (c.req.header('user-agent') ?? '').slice(0, 200);
   const body = await c.req.json<{ password?: string; fp?: string }>().catch(() => null);
   const password = typeof body?.password === 'string' ? body.password : '';
-  // 指纹为前端生成的 sha256 hex；非法/缺失时退化为仅按 ip 计数
-  const fp = typeof body?.fp === 'string' && /^[a-f0-9]{64}$/.test(body.fp) ? body.fp : 'unknown';
-  const scope = `${ip}:${fp}`;
+  // 指纹为前端生成的 sha256 hex；非法/缺失时不参与计数（避免共用 'unknown' 桶误伤他人）
+  const fp = typeof body?.fp === 'string' && /^[a-f0-9]{64}$/.test(body.fp) ? body.fp : '';
   const kv = c.env.BLOG_KV;
+  const gate = await getGateConfig(kv);
+  const lockSeconds = gate.lockMinutes * 60;
+  /** 失败计数窗口与锁定时长一致：窗口内累计触顶即锁 */
+  const windowSeconds = lockSeconds;
 
-  // 锁定期检查（值存解锁时间戳，TTL 兜底自动清理）
-  const lockKey = `login:lock:${scope}`;
-  const lockedUntil = Number(await kv.get(lockKey));
-  if (Number.isFinite(lockedUntil) && lockedUntil > Date.now()) {
+  /** 写登录日志（fp 只存前 12 位，足够人工比对又控体积） */
+  const writeLog = (r: LoginLogEntry['r']) =>
+    appendLoginLog(kv, { t: Date.now(), ip, fp: fp.slice(0, 12), ua, r });
+
+  // 双维度独立累计：只换浏览器→IP 维度仍记得失败数；只换 IP→指纹维度仍记得；
+  // 任一维度触顶则两个维度同时锁定
+  const dims = fp ? [`ip:${ip}`, `fp:${fp}`] : [`ip:${ip}`];
+  const lockKeyOf = (d: string) => `login:lock:${d}`;
+  const failKeyOf = (d: string) => `login:fail:${d}`;
+
+  // 锁定期检查（值存解锁时间戳，TTL 兜底自动清理；任一维度锁定即拒绝，取最长剩余）
+  const now = Date.now();
+  const lockVals = await Promise.all(dims.map((d) => kv.get(lockKeyOf(d))));
+  const retryAfter = Math.max(
+    0,
+    ...lockVals.map((v) => {
+      const until = Number(v);
+      return Number.isFinite(until) && until > now ? until - now : 0;
+    }),
+  );
+  if (retryAfter > 0) {
+    await writeLog('locked');
     return c.json(
-      { error: { code: 'LOCKED', message: '尝试次数过多，账号已锁定', retryAfter: Math.ceil((lockedUntil - Date.now()) / 1000) } },
+      { error: { code: 'LOCKED', message: '尝试次数过多，已锁定', retryAfter: Math.ceil(retryAfter / 1000) } },
       429,
     );
   }
 
   if (!(await passwordOk(c.env.ADMIN_PASSWORD, password))) {
-    const failKey = `login:fail:${scope}`;
-    const fails = Number(await kv.get(failKey)) + 1;
-    if (fails >= LOGIN_FAIL_LIMIT) {
-      await kv.put(lockKey, String(Date.now() + LOGIN_LOCK_SECONDS * 1000), { expirationTtl: LOGIN_LOCK_SECONDS });
-      await kv.delete(failKey);
+    // 各维度计数 +1（KV 非原子，并发下可能少计 1-2 次，个人博客可接受）
+    const failVals = await Promise.all(dims.map((d) => kv.get(failKeyOf(d))));
+    const counts = failVals.map((v) => (Number(v) || 0) + 1);
+    await Promise.all(
+      dims.map((d, i) => kv.put(failKeyOf(d), String(counts[i]), { expirationTtl: windowSeconds })),
+    );
+    const worst = Math.max(...counts);
+    if (worst >= gate.failLimit) {
+      const until = Date.now() + lockSeconds * 1000;
+      await Promise.all([
+        ...dims.map((d) => kv.put(lockKeyOf(d), String(until), { expirationTtl: lockSeconds })),
+        ...dims.map((d) => kv.delete(failKeyOf(d))),
+      ]);
+      await writeLog('fail');
       return c.json(
-        { error: { code: 'LOCKED', message: '尝试次数过多，已锁定', retryAfter: LOGIN_LOCK_SECONDS } },
+        { error: { code: 'LOCKED', message: '尝试次数过多，已锁定', retryAfter: lockSeconds } },
         429,
       );
     }
-    await kv.put(failKey, String(fails), { expirationTtl: LOGIN_WINDOW_SECONDS });
+    await writeLog('fail');
     return c.json(
-      { error: { code: 'UNAUTHORIZED', message: '密码错误', remaining: LOGIN_FAIL_LIMIT - fails } },
+      { error: { code: 'UNAUTHORIZED', message: '密码错误', remaining: gate.failLimit - worst } },
       401,
     );
   }
 
-  await kv.delete(`login:fail:${scope}`);
+  await Promise.all(dims.map((d) => kv.delete(failKeyOf(d))));
+  await writeLog('ok');
   const token = await signSession(c.env.ADMIN_PASSWORD, {
     exp: Date.now() + SESSION_TTL_MS,
     fp,

@@ -1,4 +1,4 @@
-import type { BlogPost, BlogPostSummary, SiteAccess } from '../shared/types';
+import type { BlogPost, BlogPostSummary, GateConfig, LoginLogEntry, SiteAccess } from '../shared/types';
 
 /** 列表索引键（KV 无范围查询，用单个索引数组键承载列表） */
 const INDEX_KEY = 'index:posts';
@@ -13,6 +13,45 @@ export async function getSiteAccess(kv: KVNamespace): Promise<SiteAccess> {
 
 export async function setSiteAccess(kv: KVNamespace, access: SiteAccess): Promise<void> {
   await kv.put(SITE_CONFIG_KEY, access);
+}
+
+/** 门禁参数键与登录日志键 */
+const GATE_CONFIG_KEY = 'config:gate';
+const LOGIN_LOG_KEY = 'log:login';
+/** 日志保留条数上限（线性追加读写，个人博客量级足够） */
+const LOGIN_LOG_MAX = 200;
+
+export const DEFAULT_GATE: GateConfig = { failLimit: 5, lockMinutes: 15 };
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < min || n > max) return fallback;
+  return n;
+}
+
+/** 读门禁参数；未配置/非法值回落默认（failLimit 1-20，lockMinutes 1-1440） */
+export async function getGateConfig(kv: KVNamespace): Promise<GateConfig> {
+  const raw = await kv.get<Partial<GateConfig>>(GATE_CONFIG_KEY, 'json');
+  return {
+    failLimit: clampInt(raw?.failLimit, 1, 20, DEFAULT_GATE.failLimit),
+    lockMinutes: clampInt(raw?.lockMinutes, 1, 1440, DEFAULT_GATE.lockMinutes),
+  };
+}
+
+export async function setGateConfig(kv: KVNamespace, cfg: GateConfig): Promise<void> {
+  await kv.put(GATE_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+/** 追加登录日志（最新在前，截断保留 200 条） */
+export async function appendLoginLog(kv: KVNamespace, entry: LoginLogEntry): Promise<void> {
+  const list = (await kv.get<LoginLogEntry[]>(LOGIN_LOG_KEY, 'json')) ?? [];
+  list.unshift(entry);
+  await kv.put(LOGIN_LOG_KEY, JSON.stringify(list.slice(0, LOGIN_LOG_MAX)));
+}
+
+export async function getLoginLogs(kv: KVNamespace): Promise<LoginLogEntry[]> {
+  const raw = await kv.get<LoginLogEntry[]>(LOGIN_LOG_KEY, 'json');
+  return Array.isArray(raw) ? raw : [];
 }
 
 const postKey = (id: string) => `post:${id}`;

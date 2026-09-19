@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
+import { UIDialogs } from './ui';
 import AboutPage from './pages/AboutPage';
+import BlockedPage from './pages/BlockedPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import PostPage from './pages/PostPage';
@@ -19,6 +21,7 @@ function HashShortRedirect() {
 export default function App() {
   return (
     <Layout>
+      <UIDialogs />
       <HashShortRedirect />
       <Routes>
         <Route path="/" element={<HomePage />} />
@@ -27,6 +30,7 @@ export default function App() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/admin/login" element={<LoginPage />} />
         <Route path="/admin/settings" element={<SettingsPage />} />
+        <Route path="/blocked" element={<BlockedPage />} />
       </Routes>
     </Layout>
   );

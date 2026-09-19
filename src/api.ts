@@ -1,4 +1,4 @@
-import type { BlogPost, BlogPostSummary, SiteAccess } from '../shared/types';
+import type { BlogPost, BlogPostSummary, LoginLogEntry, SiteAccess } from '../shared/types';
 
 /** 首页文章列表分页页大小 */
 export const POSTS_PAGE_SIZE = 10;
@@ -155,28 +155,62 @@ export function clearToken(): void {
 
 // ---- 站点配置（管理员设置页） ----
 
-/** 读当前访问模式（公开接口） */
-export async function fetchSiteConfig(): Promise<{ access: SiteAccess }> {
-  const res = await fetch('/api/config');
-  if (!res.ok) throw new Error(`加载站点配置失败（${res.status}）`);
-  const data = (await res.json()) as { access: SiteAccess };
-  return { access: data.access === 'admin' ? 'admin' : 'public' };
+/** 管理端完整配置：访问模式 + 门禁参数 */
+export interface AdminSiteConfig {
+  access: SiteAccess;
+  failLimit: number;
+  lockMinutes: number;
 }
 
-/** 修改访问模式（需管理员会话）；401/403 时清令牌提示重登 */
-export async function updateSiteAccess(access: SiteAccess): Promise<void> {
+/** 管理接口统一带凭证请求；401 时清令牌抛重登提示 */
+async function adminFetch(path: string, init?: RequestInit): Promise<Response> {
   const session = loadToken();
   if (!session) throw new Error('登录已过期，请重新登录');
-  const res = await fetch('/api/admin/config', {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${session.value}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ access }),
+  const res = await fetch(path, {
+    ...init,
+    headers: { ...init?.headers, Authorization: `Bearer ${session.value}` },
   });
   if (res.status === 401) {
     clearToken();
     throw new Error('登录已失效，请重新登录');
   }
+  return res;
+}
+
+/** 读管理端配置（需登录） */
+export async function fetchAdminConfig(): Promise<AdminSiteConfig> {
+  const res = await adminFetch('/api/admin/config');
+  if (!res.ok) throw new Error(`加载站点配置失败（${res.status}）`);
+  const data = (await res.json()) as AdminSiteConfig;
+  return {
+    access: data.access === 'admin' ? 'admin' : 'public',
+    failLimit: data.failLimit,
+    lockMinutes: data.lockMinutes,
+  };
+}
+
+/** 修改访问模式/门禁参数（仅传传入项） */
+export async function updateSiteConfig(patch: Partial<AdminSiteConfig>): Promise<AdminSiteConfig> {
+  const res = await adminFetch('/api/admin/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
   if (!res.ok) throw new Error((await readErrorMessage(res)) || `保存失败（${res.status}）`);
+  const data = (await res.json()) as AdminSiteConfig;
+  return {
+    access: data.access === 'admin' ? 'admin' : 'public',
+    failLimit: data.failLimit,
+    lockMinutes: data.lockMinutes,
+  };
+}
+
+/** 登录日志（最近 200 条，需登录） */
+export async function fetchLoginLogs(): Promise<LoginLogEntry[]> {
+  const res = await adminFetch('/api/admin/login-logs');
+  if (!res.ok) throw new Error(`加载登录日志失败（${res.status}）`);
+  const data = (await res.json()) as { logs: LoginLogEntry[] };
+  return Array.isArray(data.logs) ? data.logs : [];
 }
 
 /** 删除文章（管理员会话令牌）；401 时清令牌提示重新登录 */

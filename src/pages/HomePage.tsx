@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../admin';
 import { deletePost, fetchPosts, SiteLockedError } from '../api';
+import { alertDlg, confirmDlg } from '../ui';
+import BlockedPage from './BlockedPage';
 import type { BlogPostSummary } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
@@ -72,29 +74,25 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [hasMore, posts, keyword]);
 
-  // 管理员删除：确认后调接口，成功则本地移除该条（失败提示，不整页刷新）
+  // 管理员删除：自定义确认弹窗后调接口，成功则本地移除该条（失败弹窗提示，不整页刷新）
   const onDelete = async (p: BlogPostSummary) => {
-    if (!window.confirm(`确认删除《${p.title}》？删除后不可恢复。`)) return;
+    const ok = await confirmDlg(`确认删除《${p.title}》？删除后不可恢复。`, {
+      title: '删除文章',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await deletePost(p.id);
       setPosts((prev) => (prev ?? []).filter((x) => x.id !== p.id));
       setTotal((t) => Math.max(0, t - 1));
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      alertDlg(err instanceof Error ? err.message : String(err), '删除失败');
     }
   };
 
-  // 管理员访问模式（未登录）：隐藏列表与搜索，呈现登录引导
+  // 管理员访问模式（未登录）：呈现禁止访问页
   if (locked) {
-    return (
-      <div className="state">
-        本站已设为管理员访问
-        <br />
-        <Link to="/admin/login" className="post__back">
-          管理员登录
-        </Link>
-      </div>
-    );
+    return <BlockedPage detail="本站已设为管理员访问，登录后即可查看文章" />;
   }
 
   return (

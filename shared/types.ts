@@ -31,6 +31,25 @@ export interface SiteConfig {
   access: SiteAccess;
 }
 
+/** 门禁参数（KV config:gate，管理员设置页维护）：错 failLimit 次锁 lockMinutes 分钟 */
+export interface GateConfig {
+  failLimit: number;
+  lockMinutes: number;
+}
+
+/** 登录日志条目（KV log:login，保留最近 200 条） */
+export interface LoginLogEntry {
+  /** 发生时间（毫秒时间戳） */
+  t: number;
+  ip: string;
+  /** 指纹哈希前 12 位（缺失为空串） */
+  fp: string;
+  /** 截断后的 UA */
+  ua: string;
+  /** 结果：成功 / 密码错 / 锁定期拒绝 */
+  r: 'ok' | 'fail' | 'locked';
+}
+
 /** 同步写接口（PUT /api/posts/:sourceId）请求体 */
 export interface SyncPostInput {
   title: string;
