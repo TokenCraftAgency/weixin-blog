@@ -1,8 +1,11 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { useAdmin } from '../admin';
 
 /** 吸顶导航 + 内容区 + 页脚（配色与公众号搭子官网一致） */
 export default function Layout({ children }: { children: ReactNode }) {
+  const { isAuthed, logout } = useAdmin();
+  const navigate = useNavigate();
   return (
     <div className="site">
       <header className="nav">
@@ -18,6 +21,22 @@ export default function Layout({ children }: { children: ReactNode }) {
             <NavLink to="/about" className={({ isActive }) => (isActive ? 'is-active' : '')}>
               关于
             </NavLink>
+            {isAuthed ? (
+              <button
+                type="button"
+                className="nav__admin"
+                onClick={() => {
+                  logout();
+                  navigate('/');
+                }}
+              >
+                退出
+              </button>
+            ) : (
+              <NavLink to="/admin/login" className="nav__admin">
+                管理员
+              </NavLink>
+            )}
           </nav>
         </div>
       </header>

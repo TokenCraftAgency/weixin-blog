@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchPosts } from '../api';
+import { useAdmin } from '../admin';
+import { deletePost, fetchPosts } from '../api';
 import type { BlogPostSummary } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
   new Date(ts).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
 export default function HomePage() {
+  const { isAuthed } = useAdmin();
   const [input, setInput] = useState('');
   const [keyword, setKeyword] = useState('');
   const [posts, setPosts] = useState<BlogPostSummary[] | null>(null);
@@ -62,6 +64,18 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [hasMore, posts, keyword]);
 
+  // 管理员删除：确认后调接口，成功则本地移除该条（失败提示，不整页刷新）
+  const onDelete = async (p: BlogPostSummary) => {
+    if (!window.confirm(`确认删除《${p.title}》？删除后不可恢复。`)) return;
+    try {
+      await deletePost(p.id);
+      setPosts((prev) => (prev ?? []).filter((x) => x.id !== p.id));
+      setTotal((t) => Math.max(0, t - 1));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   return (
     <>
       <div className="home-hero">
@@ -92,21 +106,33 @@ export default function HomePage() {
           )}
           <div className="post-list">
             {posts.map((p) => (
-              <Link key={p.id} to={`/post/${p.id}`} className="post-card">
-                {p.coverUrl && <img className="post-card__cover" src={p.coverUrl} alt="" loading="lazy" />}
-                <div className="post-card__body">
-                  <h2 className="post-card__title">{p.title}</h2>
-                  {p.digest && <p className="post-card__digest">{p.digest}</p>}
-                  <div className="post-card__meta">
-                    <span>{fmtDate(p.createdAt)}</span>
-                    {p.tags.map((t) => (
-                      <span key={t} className="tag">
-                        {t}
-                      </span>
-                    ))}
+              <div key={p.id} className="post-card-slot">
+                <Link to={`/post/${p.id}`} className="post-card">
+                  {p.coverUrl && <img className="post-card__cover" src={p.coverUrl} alt="" loading="lazy" />}
+                  <div className="post-card__body">
+                    <h2 className="post-card__title">{p.title}</h2>
+                    {p.digest && <p className="post-card__digest">{p.digest}</p>}
+                    <div className="post-card__meta">
+                      <span>{fmtDate(p.createdAt)}</span>
+                      {p.tags.map((t) => (
+                        <span key={t} className="tag">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </Link>
+                </Link>
+                {isAuthed && (
+                  <button
+                    type="button"
+                    className="post-card__delete"
+                    title="删除这篇文章"
+                    onClick={() => onDelete(p)}
+                  >
+                    删除
+                  </button>
+                )}
+              </div>
             ))}
           </div>
           {hasMore && <div ref={sentinelRef} className="state">{loadingMore ? '加载中…' : ''}</div>}

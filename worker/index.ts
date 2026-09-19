@@ -3,11 +3,13 @@ import type { MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import type { SyncPostInput } from '../shared/types';
 import { deletePost, getPost, getPostIndex, upsertPost } from './kv';
+import { passwordOk, SESSION_TTL_MS, signSession, verifySession } from './auth';
 
 type Env = {
   Bindings: {
     BLOG_KV: KVNamespace;
     BLOG_API_TOKEN: string;
+    ADMIN_PASSWORD: string;
     ASSETS: Fetcher;
   };
 };
@@ -21,7 +23,7 @@ api.use(
   cors({
     origin: ['https://mp.weixin.qq.com', 'http://localhost:5173'],
     allowHeaders: ['Authorization', 'Content-Type'],
-    allowMethods: ['GET', 'PUT', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     maxAge: 86400,
   }),
 );
@@ -54,14 +56,89 @@ api.get('/posts/:id', async (c) => {
 
 // ---- 写接口：Bearer Token ----
 
-const bearerAuth: MiddlewareHandler<Env> = async (c, next) => {
+/** 从 Authorization 头取出 Bearer 凭证（无效时返回空串） */
+function bearer(c: { req: { header(name: string): string | undefined } }): string {
   const header = c.req.header('Authorization') ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+}
+
+/** 同步链路（公众号搭子/油猴脚本）：仅接受 BLOG_API_TOKEN */
+const bearerAuth: MiddlewareHandler<Env> = async (c, next) => {
+  const token = bearer(c);
   if (!c.env.BLOG_API_TOKEN || token !== c.env.BLOG_API_TOKEN) {
     return c.json({ error: { code: 'UNAUTHORIZED', message: '无效或缺失的 Bearer Token' } }, 401);
   }
   await next();
 };
+
+/** 删除等管理操作：BLOG_API_TOKEN 或管理员会话令牌任一即可 */
+const writeAuth: MiddlewareHandler<Env> = async (c, next) => {
+  const token = bearer(c);
+  if (token && c.env.BLOG_API_TOKEN && token === c.env.BLOG_API_TOKEN) {
+    await next();
+    return;
+  }
+  if (token && (await verifySession(c.env.ADMIN_PASSWORD, token))) {
+    await next();
+    return;
+  }
+  return c.json({ error: { code: 'UNAUTHORIZED', message: '无效或缺失的 Bearer Token' } }, 401);
+};
+
+// ---- 管理员登录：密码校验 + 失败锁定（IP + 浏览器指纹，5 次锁 15 分钟） ----
+
+const LOGIN_FAIL_LIMIT = 5;
+const LOGIN_LOCK_SECONDS = 900;
+/** 失败计数窗口（秒），与锁定时长一致：窗口内累计 5 次即锁 */
+const LOGIN_WINDOW_SECONDS = 900;
+
+api.post('/admin/login', async (c) => {
+  if (!c.env.ADMIN_PASSWORD) {
+    return c.json({ error: { code: 'CONFIG', message: '服务端未配置 ADMIN_PASSWORD' } }, 500);
+  }
+  const ip = c.req.header('cf-connecting-ip') ?? 'unknown';
+  const body = await c.req.json<{ password?: string; fp?: string }>().catch(() => null);
+  const password = typeof body?.password === 'string' ? body.password : '';
+  // 指纹为前端生成的 sha256 hex；非法/缺失时退化为仅按 ip 计数
+  const fp = typeof body?.fp === 'string' && /^[a-f0-9]{64}$/.test(body.fp) ? body.fp : 'unknown';
+  const scope = `${ip}:${fp}`;
+  const kv = c.env.BLOG_KV;
+
+  // 锁定期检查（值存解锁时间戳，TTL 兜底自动清理）
+  const lockKey = `login:lock:${scope}`;
+  const lockedUntil = Number(await kv.get(lockKey));
+  if (Number.isFinite(lockedUntil) && lockedUntil > Date.now()) {
+    return c.json(
+      { error: { code: 'LOCKED', message: '尝试次数过多，账号已锁定', retryAfter: Math.ceil((lockedUntil - Date.now()) / 1000) } },
+      429,
+    );
+  }
+
+  if (!(await passwordOk(c.env.ADMIN_PASSWORD, password))) {
+    const failKey = `login:fail:${scope}`;
+    const fails = Number(await kv.get(failKey)) + 1;
+    if (fails >= LOGIN_FAIL_LIMIT) {
+      await kv.put(lockKey, String(Date.now() + LOGIN_LOCK_SECONDS * 1000), { expirationTtl: LOGIN_LOCK_SECONDS });
+      await kv.delete(failKey);
+      return c.json(
+        { error: { code: 'LOCKED', message: '尝试次数过多，已锁定', retryAfter: LOGIN_LOCK_SECONDS } },
+        429,
+      );
+    }
+    await kv.put(failKey, String(fails), { expirationTtl: LOGIN_WINDOW_SECONDS });
+    return c.json(
+      { error: { code: 'UNAUTHORIZED', message: '密码错误', remaining: LOGIN_FAIL_LIMIT - fails } },
+      401,
+    );
+  }
+
+  await kv.delete(`login:fail:${scope}`);
+  const token = await signSession(c.env.ADMIN_PASSWORD, {
+    exp: Date.now() + SESSION_TTL_MS,
+    fp,
+  });
+  return c.json({ ok: true, token, expiresIn: Math.floor(SESSION_TTL_MS / 1000) });
+});
 
 // ---- 图片转存：解码正文/封面中的 base64 data URI → KV（img:<sha256>.<ext>） ----
 
@@ -173,8 +250,8 @@ api.put('/posts/:sourceId', bearerAuth, async (c) => {
   }
 });
 
-/** 删除单篇（Bearer；图片键可能跨文章共享，不清理） */
-api.delete('/posts/:sourceId', bearerAuth, async (c) => {
+/** 删除单篇（API Token 或管理员会话；图片键可能跨文章共享，不清理） */
+api.delete('/posts/:sourceId', writeAuth, async (c) => {
   const sourceId = c.req.param('sourceId');
   if (!SOURCE_ID_RE.test(sourceId)) {
     return c.json({ error: { code: 'INVALID_REQUEST', message: 'sourceId 格式不合法' } }, 400);

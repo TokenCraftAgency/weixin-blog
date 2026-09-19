@@ -312,6 +312,26 @@ img {
   background: var(--green-light);
 }
 
+/* 详情页删除：同款胶囊，警示红描边 */
+.post__delete {
+  padding: 4px 12px;
+  border: 1px solid #ffa39e;
+  border-radius: 999px;
+  background: var(--card);
+  color: #d4380d;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.post__delete:hover {
+  background: #fff1f0;
+}
+
+.post__delete:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .post__cover {
   display: block;
   width: 100%;
@@ -388,6 +408,146 @@ img {
   padding: 32px 0;
 }
 
+/* ---- 管理员：列表卡槽 + 卡片删除按钮（悬停显现） ---- */
+.post-card-slot {
+  position: relative;
+}
+
+.post-card__delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  padding: 3px 12px;
+  border: 1px solid #ffccc7;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #d4380d;
+  font-size: 12.5px;
+  opacity: 0;
+  transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.post-card-slot:hover .post-card__delete,
+.post-card__delete:focus-visible {
+  opacity: 1;
+}
+
+.post-card__delete:hover {
+  border-color: #ffa39e;
+  background: #fff1f0;
+}
+
+/* 导航管理员入口（链接/退出按钮同款样式） */
+.nav__admin {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.nav__admin:hover {
+  color: var(--green-dark);
+  background: var(--green-light);
+}
+
+/* ---- 登录页 ---- */
+.login {
+  max-width: 400px;
+  margin: 48px auto;
+  padding: 36px clamp(20px, 5vw, 40px);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.login h1 {
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.login__hint {
+  color: var(--ink-3);
+  font-size: 13.5px;
+  margin-bottom: 20px;
+}
+
+.login__ok {
+  color: var(--green-dark);
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.login__form {
+  display: flex;
+  gap: 8px;
+}
+
+.login__form input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.login__form input:focus {
+  outline: none;
+  border-color: var(--green);
+  background: var(--card);
+}
+
+.login__btn {
+  padding: 9px 22px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--green);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.login__btn:hover {
+  background: var(--green-dark);
+}
+
+.login__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.login__btn--ghost {
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.login__btn--ghost:hover {
+  background: var(--bg);
+  border-color: var(--ink-3);
+}
+
+.login__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.login__error {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #fff1f0;
+  color: #d4380d;
+  font-size: 13.5px;
+}
+
 /* ---- 页脚 ---- */
 .footer {
   border-top: 1px solid var(--line);
@@ -407,5 +567,10 @@ img {
   .post-card__cover {
     width: 100%;
     height: 150px;
+  }
+
+  /* 触屏无悬停：删除按钮常显 */
+  .post-card__delete {
+    opacity: 1;
   }
 }

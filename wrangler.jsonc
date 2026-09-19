@@ -9,14 +9,14 @@
 		"not_found_handling": "single-page-application",
 		"binding": "ASSETS"
 	},
-	"kv_namespaces": [
-		{
-			"binding": "BLOG_KV",
-			// 部署前执行 npx wrangler kv namespace create BLOG_KV，把返回的 id 填到这里
-			"id": "",
-			"remote": true
-		}
-	],
+	// "kv_namespaces": [
+	// 	{
+	// 		"binding": "BLOG_KV",
+	// 		// 部署前执行 npx wrangler kv namespace create BLOG_KV，把返回的 id 填到这里
+	// 		"id": "<YOUR_KV_NAMESPACE_ID>",
+	// 		"remote": true
+	// 	}
+	// ],
 	"observability": {
 		"enabled": true
 	}

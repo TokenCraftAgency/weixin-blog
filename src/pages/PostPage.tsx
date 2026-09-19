@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { fetchPost } from '../api';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAdmin } from '../admin';
+import { deletePost, fetchPost } from '../api';
 import type { BlogPost } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
@@ -54,10 +55,13 @@ async function copyRich(html: string): Promise<void> {
 
 export default function PostPage() {
   const { id } = useParams<{ id: string }>();
+  const { isAuthed } = useAdmin();
+  const navigate = useNavigate();
   const [post, setPost] = useState<BlogPost | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +92,19 @@ export default function PostPage() {
     }
   };
 
+  const onDelete = async () => {
+    if (!post || !id) return;
+    if (!window.confirm(`确认删除《${post.title}》？删除后不可恢复。`)) return;
+    setDeleting(true);
+    try {
+      await deletePost(id);
+      navigate('/', { replace: true });
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+      setDeleting(false);
+    }
+  };
+
   if (notFound) {
     return (
       <div className="state">
@@ -113,6 +130,16 @@ export default function PostPage() {
           <button type="button" className="post__copy" onClick={onCopy}>
             {copied ? '已复制 ✓' : '一键复制'}
           </button>
+          {isAuthed && (
+            <button
+              type="button"
+              className="post__delete"
+              onClick={onDelete}
+              disabled={deleting}
+            >
+              {deleting ? '删除中…' : '删除文章'}
+            </button>
+          )}
         </div>
       </header>
       <hr className="post__divider" />

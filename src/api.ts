@@ -29,3 +29,114 @@ export async function fetchPost(id: string): Promise<BlogPost | null> {
   const data = (await res.json()) as { post: BlogPost };
   return data.post;
 }
+
+// ---- 管理员会话（登录/令牌存取/删除） ----
+
+const FP_KEY = 'blog_fp';
+const TOKEN_KEY = 'blog_admin_token';
+
+/** 登录失败错误：区分密码错误（剩余额度）与锁定（剩余秒数） */
+export class AdminLoginError extends Error {
+  constructor(
+    message: string,
+    readonly code: 'UNAUTHORIZED' | 'LOCKED' | 'ERROR',
+    readonly remaining?: number,
+    readonly retryAfter?: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * 浏览器指纹：UA + 语言 + 时区 + 屏幕尺寸 + dpr 的 SHA-256，
+ * 首次计算后缓存 localStorage 保证稳定（服务端失败锁定粒度的一部分）。
+ */
+export async function getFingerprint(): Promise<string> {
+  const cached = localStorage.getItem(FP_KEY);
+  if (cached && /^[a-f0-9]{64}$/.test(cached)) return cached;
+  const raw = [
+    navigator.userAgent,
+    navigator.language,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    `${screen.width}x${screen.height}`,
+    String(window.devicePixelRatio || 1),
+  ].join('|');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  let hex = '';
+  for (const b of new Uint8Array(digest)) hex += b.toString(16).padStart(2, '0');
+  localStorage.setItem(FP_KEY, hex);
+  return hex;
+}
+
+/** 读取本地令牌并解析 exp（无效/过期返回 null，顺手清理） */
+export function loadToken(): { value: string; exp: number } | null {
+  const value = localStorage.getItem(TOKEN_KEY);
+  if (!value) return null;
+  try {
+    const payload = JSON.parse(atob(value.split('.')[0].replace(/-/g, '+').replace(/_/g, '/')));
+    if (typeof payload.exp !== 'number' || payload.exp < Date.now()) {
+      localStorage.removeItem(TOKEN_KEY);
+      return null;
+    }
+    return { value, exp: payload.exp };
+  } catch {
+    localStorage.removeItem(TOKEN_KEY);
+    return null;
+  }
+}
+
+function notifyAdminChange(): void {
+  window.dispatchEvent(new Event('blog-admin-change'));
+}
+
+/** 登录；成功存令牌并广播登录态变化，失败抛 AdminLoginError */
+export async function adminLogin(password: string): Promise<void> {
+  const fp = await getFingerprint();
+  const res = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, fp }),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    ok?: boolean;
+    token?: string;
+    error?: { code?: string; message?: string; remaining?: number; retryAfter?: number };
+  } | null;
+  if (res.ok && data?.ok && data.token) {
+    localStorage.setItem(TOKEN_KEY, data.token);
+    notifyAdminChange();
+    return;
+  }
+  const err = data?.error;
+  if (res.status === 401) {
+    throw new AdminLoginError(err?.message ?? '密码错误', 'UNAUTHORIZED', err?.remaining);
+  }
+  if (res.status === 429) {
+    throw new AdminLoginError(err?.message ?? '尝试次数过多，已锁定', 'LOCKED', undefined, err?.retryAfter ?? 900);
+  }
+  throw new AdminLoginError(err?.message ?? `登录失败（${res.status}）`, 'ERROR');
+}
+
+/** 退出登录（仅清本地令牌，无状态令牌无法服务端吊销，改密码可全局失效） */
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  notifyAdminChange();
+}
+
+/** 删除文章（管理员会话令牌）；401 时清令牌提示重新登录 */
+export async function deletePost(id: string): Promise<void> {
+  const session = loadToken();
+  if (!session) throw new Error('登录已过期，请重新登录');
+  const res = await fetch(`/api/posts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.value}` },
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('登录已失效，请重新登录');
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(data?.error?.message ?? `删除失败（${res.status}）`);
+  }
+}
