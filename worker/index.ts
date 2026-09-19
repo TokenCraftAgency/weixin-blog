@@ -51,6 +51,38 @@ async function hasWriteCred(c: { req: { header(name: string): string | undefined
   return (await verifySession(c.env.ADMIN_PASSWORD, token)) !== null;
 }
 
+/** 方案 A：详情接口边缘缓存（caches.default，colo 级）。
+ * 仅匿名 GET 参与——带凭证请求（API Token / 管理员会话）永远直读 KV，
+ * 保证「管理员访问」模式下管理员看到的永远是最新；错误响应不写缓存。
+ * 缓存键 = 完整请求 URL（含 query）。
+ * 注：Response.body 为一次性流，必须 clone 一份交缓存、原件返回客户端，
+ * 否则两处读同一 streams 会触发「body already used」导致 MISS 路径 500。 */
+function edgeCache(seconds: number): MiddlewareHandler<Env> {
+  return async (c, next) => {
+    if (c.req.method !== 'GET' || c.req.header('authorization')) {
+      await next();
+      return;
+    }
+    const cache = caches.default;
+    const keyReq = new Request(c.req.raw, { method: 'GET' });
+    const hit = await cache.match(keyReq);
+    if (hit) return hit;
+    await next();
+    const res = c.res;
+    if (res.ok) {
+      const out = new Response(res.body, res);
+      out.headers.set('Cache-Control', `public, max-age=${seconds}`);
+      out.headers.set('x-edge-cache', `HIT after ${seconds}s`);
+      // clone 必须在任何一处读取 body 之前调用（tee 分流），原件返回客户端、副本写缓存
+      c.executionCtx.waitUntil(cache.put(keyReq, out.clone()));
+      c.res = out;
+      return;
+    }
+    // 4xx/5xx：按 Cloudflare 默认规则不会被缓存，但显式声明避免歧义
+    res.headers.set('Cache-Control', 'no-store');
+  };
+}
+
 /** 站点访问门控：「管理员访问」模式下首页数据/文章本体详情仅对有凭证者开放；
  * 短链接详情、图片、关于页不受限 */
 const requireWhenAdmin: MiddlewareHandler<Env> = async (c, next) => {
@@ -86,7 +118,7 @@ api.get('/posts', requireWhenAdmin, async (c) => {
 /** 短 ID 访问文章（分享链接 /#<shortId> 的解析端点；注册在 /posts/:id 之前） */
 const SHORT_ID_RE = /^[23456789a-hjkmnp-tv-z]{6}$/;
 
-api.get('/posts/short/:shortId', async (c) => {
+api.get('/posts/short/:shortId', edgeCache(300), async (c) => {
   const shortId = c.req.param('shortId').toLowerCase();
   if (!SHORT_ID_RE.test(shortId)) {
     return c.json({ error: { code: 'INVALID_REQUEST', message: '短 ID 格式不合法' } }, 400);
@@ -96,7 +128,7 @@ api.get('/posts/short/:shortId', async (c) => {
   return c.json({ post });
 });
 
-api.get('/posts/:id', requireWhenAdmin, async (c) => {
+api.get('/posts/:id', requireWhenAdmin, edgeCache(60), async (c) => {
   const post = await getPost(c.env.BLOG_KV, c.req.param('id'));
   if (!post) return c.json({ error: { code: 'NOT_FOUND', message: '文章不存在' } }, 404);
   return c.json({ post });

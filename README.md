@@ -39,7 +39,8 @@ npm run dev        # concurrently：vite(5173) + wrangler dev(8787)
 | PUT | `/api/admin/config` | Bearer / 会话 | 修改访问模式/门禁参数（字段可选，仅更新传入项） |
 | GET | `/api/admin/login-logs` | Bearer / 会话 | 登录日志（最近 200 条） |
 | GET | `/api/posts` | 公开* | 文章列表（按创建时间倒序；`?q=` 按 id/标题关键字过滤；`?limit=&offset=` 分页，返回 `total`/`hasMore`） |
-| GET | `/api/posts/short/:shortId` | 公开 | 文章详情（按 6 位短 ID，分享链接链路） |
+| GET | `/api/posts/short/:shortId` | 公开 | 文章详情（按 6 位短 ID，分享链接链路；匿名请求边缘缓存 5 分钟） |
+| GET | `/api/posts/:id` | 公开* | 文章详情（按源 ID；「管理员访问」模式下仅凭证可访；匿名请求边缘缓存 60 秒） |
 | GET | `/img/:key` | 公开 | 静态图片（内容哈希键，immutable + KV 边缘缓存） |
 | PUT | `/api/posts/:sourceId` | Bearer | 同步/更新文章（幂等，同 id 覆盖不重复） |
 | DELETE | `/api/posts/:sourceId` | Bearer / 会话 | 删除文章（API Token 或管理员会话令牌任一；图片键可能跨文章共享，不清理） |
@@ -68,6 +69,8 @@ DELETE /api/posts/42 → 200 { "ok": true, "deleted": true } / 404
 **图片转存**：PUT 时服务端把 `contentHtml`/`coverUrl` 中的 `data:image/*;base64` 解码，按内容 SHA-256 命名（`img:<hash>.<ext>`）转存 KV，并把 src 改写为 `/img/<hash>.<ext>`；单图解码失败/超 15MB 时把 src 还原为标签 `data-src` 里的原链接（无 data-src 则不动）。`/img/:key` 带 `Cache-Control: public, max-age=31536000, immutable` + KV `cacheTtl` 86400 双层缓存。请求体上限 24MB（含 base64 膨胀），单图解码后上限 15MB。
 
 CORS 白名单：`https://mp.weixin.qq.com`（油猴脚本）+ `http://localhost:5173`（本地联调）。
+
+**详情接口边缘缓存**：两个文章详情端点经 `caches.default`（Cloudflare colo 级 Cache API）缓存——仅匿名 GET 参与，带凭证（API Token / 管理员会话）的请求永远直读 KV，管理员始终看到最新数据；4xx/5xx 不写缓存。TTL：短链接详情 300s、源 ID 详情 60s（后者在公开模式下被列表入口高频走，取更短以压低改文后的可见延迟）。命中时响应带 `x-edge-cache` 头可观测。
 
 **双入口访问**：文章详情有两种 URL——站内列表点击走 `/post/<文章id>`；外部分享走 `/#<短ID>`（如 `https://weixin-blog.g11.workers.dev/#ab3def`，前端重定向到 `/s/<短ID>` 渲染同一篇）。短 ID 在首次同步（PUT）时由服务端随机生成（6 位、去易混字符 0/o/1/i/l），重复同步保持不变；用于分享时防止文章 id 被推理遍历。存量旧文章在下次同步时自动补发短 ID。
 
