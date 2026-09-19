@@ -12,7 +12,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="nav__inner">
           <NavLink to="/" className="nav__brand">
             <span className="nav__logo" aria-hidden="true" />
-            公众号搭子
+            <span className="nav__brand-text">公众号搭子</span>
           </NavLink>
           <nav className="nav__links">
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}>

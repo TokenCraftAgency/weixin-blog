@@ -9,6 +9,10 @@ import type { BlogPostSummary } from '../../shared/types';
 const fmtDate = (ts: number) =>
   new Date(ts).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
+/** 长按判定时长（ms）与移动容差（px），触屏通用手感区间 */
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
+
 export default function HomePage() {
   const { isAuthed } = useAdmin();
   const [input, setInput] = useState('');
@@ -21,6 +25,48 @@ export default function HomePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
+  // 长按唤起的删除按钮：同时仅一张卡片激活
+  const [deleteVisibleId, setDeleteVisibleId] = useState<string | null>(null);
+  const pressTimerRef = useRef<number | undefined>(undefined);
+  const pressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  // 长按后松手会补发 click（会误跳详情），置标后由 onClickCapture 吞掉一次
+  const swallowClickRef = useRef(false);
+
+  const cancelLongPress = () => {
+    window.clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = undefined;
+  };
+
+  // 仅管理员绑定：touchstart 起计时，移动超阈/取消即中止，到时显现删除按钮
+  const longPressProps = (id: string) => ({
+    onTouchStart: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      swallowClickRef.current = false;
+      pressOriginRef.current = { x: t.clientX, y: t.clientY };
+      cancelLongPress();
+      pressTimerRef.current = window.setTimeout(() => {
+        setDeleteVisibleId(id);
+        swallowClickRef.current = true;
+        navigator.vibrate?.(10); // 轻震反馈（不支持则静默）
+      }, LONG_PRESS_MS);
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      const o = pressOriginRef.current;
+      const t = e.touches[0];
+      if (o && (Math.abs(t.clientX - o.x) > LONG_PRESS_MOVE_TOLERANCE || Math.abs(t.clientY - o.y) > LONG_PRESS_MOVE_TOLERANCE)) {
+        cancelLongPress(); // 视为滚动意图
+      }
+    },
+    onTouchEnd: cancelLongPress,
+    onTouchCancel: cancelLongPress,
+    onClickCapture: (e: React.MouseEvent) => {
+      if (swallowClickRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        swallowClickRef.current = false;
+      }
+    },
+  });
 
   // 首屏 / 关键字变化：回到第 1 页重新拉取
   useEffect(() => {
@@ -125,7 +171,11 @@ export default function HomePage() {
           )}
           <div className="post-list">
             {posts.map((p) => (
-              <div key={p.id} className="post-card-slot">
+              <div
+                key={p.id}
+                className={`post-card-slot${deleteVisibleId === p.id ? ' is-active' : ''}`}
+                {...(isAuthed ? longPressProps(p.id) : {})}
+              >
                 <Link to={`/post/${p.id}`} className="post-card">
                   {p.coverUrl && <img className="post-card__cover" src={p.coverUrl} alt="" loading="lazy" />}
                   <div className="post-card__body">
@@ -146,9 +196,18 @@ export default function HomePage() {
                     type="button"
                     className="post-card__delete"
                     title="删除这篇文章"
-                    onClick={() => onDelete(p)}
+                    aria-label="删除这篇文章"
+                    onClick={() => {
+                      setDeleteVisibleId(null);
+                      onDelete(p);
+                    }}
                   >
-                    删除
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
                   </button>
                 )}
               </div>

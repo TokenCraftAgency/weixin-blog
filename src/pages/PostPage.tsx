@@ -149,6 +149,9 @@ export default function PostPage() {
   }
   if (!post) return <div className="state">加载中…</div>;
 
+  // 底部展示；过滤掉带「提交者」的标签（提交人已由 meta 行的 author 呈现，不重复）
+  const visibleTags = post.tags.filter((t) => !t.includes('提交者'));
+
   return (
     <article className="post">
       <header className="post__header">
@@ -156,11 +159,6 @@ export default function PostPage() {
         <div className="post__meta">
           {post.author && <span>{post.author}</span>}
           <span>{fmtDate(post.createdAt)}</span>
-          {post.tags.map((t) => (
-            <span key={t} className="tag">
-              {t}
-            </span>
-          ))}
           {post.shortId && (
             <button type="button" className="post__share" onClick={onShare}>
               {shareCopied ? '已复制 ✓' : '分享'}
@@ -185,6 +183,15 @@ export default function PostPage() {
       {post.coverUrl && <img className="post__cover" src={post.coverUrl} alt="" />}
       {/* 内容来自 token 认证的写接口（仅本人可写），原样渲染微信排版 HTML */}
       <div className="post-content" dangerouslySetInnerHTML={{ __html: post.contentHtml }} />
+      {visibleTags.length > 0 && (
+        <div className="post__tags">
+          {visibleTags.map((t) => (
+            <span key={t} className="tag">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
       <Link to="/" className="post__back">
         ← 回到首页
       </Link>
