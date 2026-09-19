@@ -296,7 +296,7 @@ img {
   margin: 20px 0 28px;
 }
 
-/* 一键复制：meta 行内的轻量按钮 */
+/* 一键复制：meta 行内的轻量按钮（右侧胶囊组；分享按钮存在时由它接管右推） */
 .post__copy {
   margin-left: auto;
   padding: 4px 12px;
@@ -310,6 +310,27 @@ img {
 
 .post__copy:hover {
   background: var(--green-light);
+}
+
+/* 分享：复制短链接 <站点>/#<短ID>，实心绿胶囊区分于描边的复制按钮 */
+.post__share {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--green);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.post__share:hover {
+  background: var(--green-dark);
+}
+
+/* 两按钮同现时靠分享按钮右推，复制紧随其左 */
+.post__share + .post__copy {
+  margin-left: 0;
 }
 
 /* 详情页删除：同款胶囊，警示红描边 */

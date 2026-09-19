@@ -4,6 +4,29 @@ import type { BlogPost, BlogPostSummary } from '../shared/types';
 const INDEX_KEY = 'index:posts';
 
 const postKey = (id: string) => `post:${id}`;
+const shortKey = (sid: string) => `short:${sid}`;
+
+/** 短 ID 字符集：去除易混字符 0/o/1/i/l */
+const SHORT_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
+const SHORT_LEN = 6;
+
+/** 密码学随机生成 6 位短 ID */
+function randomShortId(): string {
+  const bytes = new Uint8Array(SHORT_LEN);
+  crypto.getRandomValues(bytes);
+  let s = '';
+  for (const b of bytes) s += SHORT_ALPHABET[b % SHORT_ALPHABET.length];
+  return s;
+}
+
+/** 碰撞时重试生成唯一短 ID（映射键 + 索引双重校验） */
+async function genUniqueShortId(kv: KVNamespace): Promise<string> {
+  for (let i = 0; i < 10; i += 1) {
+    const sid = randomShortId();
+    if (!(await kv.get(shortKey(sid)))) return sid;
+  }
+  throw new Error('shortId 生成失败：多次碰撞');
+}
 
 export async function getPostIndex(kv: KVNamespace): Promise<BlogPostSummary[]> {
   const raw = await kv.get<BlogPostSummary[]>(INDEX_KEY, 'json');
@@ -12,6 +35,18 @@ export async function getPostIndex(kv: KVNamespace): Promise<BlogPostSummary[]> 
 
 export async function getPost(kv: KVNamespace, id: string): Promise<BlogPost | null> {
   return (await kv.get<BlogPost>(postKey(id), 'json')) ?? null;
+}
+
+/** 短 ID → 内部 sourceId（不存在返回 null） */
+export async function resolveShortId(kv: KVNamespace, shortId: string): Promise<string | null> {
+  return (await kv.get<string>(shortKey(shortId))) ?? null;
+}
+
+/** 按短 ID 读文章本体 */
+export async function getPostByShortId(kv: KVNamespace, shortId: string): Promise<BlogPost | null> {
+  const id = await resolveShortId(kv, shortId);
+  if (!id) return null;
+  return getPost(kv, id);
 }
 
 export interface UpsertInput {
@@ -36,8 +71,11 @@ export async function upsertPost(
 ): Promise<{ created: boolean; summary: BlogPostSummary }> {
   const existing = await getPost(kv, sourceId);
   const now = Date.now();
+  // 首次收录生成短 ID；重复同步保留原有短 ID（幂等）
+  const shortId = existing?.shortId || (await genUniqueShortId(kv));
   const post: BlogPost = {
     id: sourceId,
+    shortId,
     title: input.title,
     author: input.author,
     digest: input.digest,
@@ -49,8 +87,10 @@ export async function upsertPost(
     syncedAt: now,
   };
   await kv.put(postKey(sourceId), JSON.stringify(post));
+  if (!existing) await kv.put(shortKey(shortId), sourceId);
   const summary: BlogPostSummary = {
     id: post.id,
+    shortId: post.shortId,
     title: post.title,
     digest: post.digest,
     coverUrl: post.coverUrl,
@@ -74,6 +114,7 @@ export async function deletePost(kv: KVNamespace, sourceId: string): Promise<boo
   const existing = await getPost(kv, sourceId);
   if (!existing) return false;
   await kv.delete(postKey(sourceId));
+  if (existing.shortId) await kv.delete(shortKey(existing.shortId));
   await kv.put(
     INDEX_KEY,
     JSON.stringify((await getPostIndex(kv)).filter((s) => s.id !== sourceId)),

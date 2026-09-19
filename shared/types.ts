@@ -1,7 +1,9 @@
 /** 博客文章摘要（列表索引条目） */
 export interface BlogPostSummary {
-  /** 来源文章 id（weixin-publisher IndexedDB 自增主键） */
+  /** 来源文章 id（weixin-publisher IndexedDB 自增主键），列表/详情内部链路使用 */
   id: string;
+  /** 对外分享短 ID（6 位随机、去易混字符），首次收录时生成、重复同步不变 */
+  shortId: string;
   title: string;
   digest: string;
   coverUrl: string;

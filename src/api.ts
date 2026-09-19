@@ -21,9 +21,18 @@ export async function fetchPosts(
   return { posts: data.posts, total: data.total, hasMore: data.hasMore === true };
 }
 
-/** 文章详情；404 返回 null，其余非 200 抛出 */
+/** 文章详情（列表入口，按文章 id）；404 返回 null，其余非 200 抛出 */
 export async function fetchPost(id: string): Promise<BlogPost | null> {
   const res = await fetch(`/api/posts/${encodeURIComponent(id)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`加载文章失败（${res.status}）`);
+  const data = (await res.json()) as { post: BlogPost };
+  return data.post;
+}
+
+/** 文章详情（分享入口，按 6 位短 ID /#<shortId>）；404 返回 null，其余非 200 抛出 */
+export async function fetchPostByShortId(shortId: string): Promise<BlogPost | null> {
+  const res = await fetch(`/api/posts/short/${encodeURIComponent(shortId)}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`加载文章失败（${res.status}）`);
   const data = (await res.json()) as { post: BlogPost };

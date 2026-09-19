@@ -35,6 +35,7 @@ npm run dev        # concurrently：vite(5173) + wrangler dev(8787)
 | 方法 | 路径 | 认证 | 说明 |
 |---|---|---|---|
 | GET | `/api/posts` | 公开 | 文章列表（按创建时间倒序；`?q=` 按 id/标题关键字过滤；`?limit=&offset=` 分页，返回 `total`/`hasMore`） |
+| GET | `/api/posts/short/:shortId` | 公开 | 文章详情（按 6 位短 ID，分享链接链路） |
 | GET | `/img/:key` | 公开 | 静态图片（内容哈希键，immutable + KV 边缘缓存） |
 | PUT | `/api/posts/:sourceId` | Bearer | 同步/更新文章（幂等，同 id 覆盖不重复） |
 | DELETE | `/api/posts/:sourceId` | Bearer / 会话 | 删除文章（API Token 或管理员会话令牌任一；图片键可能跨文章共享，不清理） |
@@ -63,6 +64,8 @@ DELETE /api/posts/42 → 200 { "ok": true, "deleted": true } / 404
 **图片转存**：PUT 时服务端把 `contentHtml`/`coverUrl` 中的 `data:image/*;base64` 解码，按内容 SHA-256 命名（`img:<hash>.<ext>`）转存 KV，并把 src 改写为 `/img/<hash>.<ext>`；单图解码失败/超 15MB 时把 src 还原为标签 `data-src` 里的原链接（无 data-src 则不动）。`/img/:key` 带 `Cache-Control: public, max-age=31536000, immutable` + KV `cacheTtl` 86400 双层缓存。请求体上限 24MB（含 base64 膨胀），单图解码后上限 15MB。
 
 CORS 白名单：`https://mp.weixin.qq.com`（油猴脚本）+ `http://localhost:5173`（本地联调）。
+
+**双入口访问**：文章详情有两种 URL——站内列表点击走 `/post/<文章id>`；外部分享走 `/#<短ID>`（如 `https://weixin-blog.g11.workers.dev/#ab3def`，前端重定向到 `/s/<短ID>` 渲染同一篇）。短 ID 在首次同步（PUT）时由服务端随机生成（6 位、去易混字符 0/o/1/i/l），重复同步保持不变；用于分享时防止文章 id 被推理遍历。存量旧文章在下次同步时自动补发短 ID。
 
 ## 管理员登录
 

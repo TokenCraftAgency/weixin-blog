@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAdmin } from '../admin';
-import { deletePost, fetchPost } from '../api';
+import { deletePost, fetchPost, fetchPostByShortId } from '../api';
 import type { BlogPost } from '../../shared/types';
 
 const fmtDate = (ts: number) =>
@@ -54,13 +54,15 @@ async function copyRich(html: string): Promise<void> {
 }
 
 export default function PostPage() {
-  const { id } = useParams<{ id: string }>();
+  // 双入口：/post/:id（列表链路，文章 id）与 /s/:shortId（分享链路，6 位短 ID）
+  const { id, shortId } = useParams<{ id?: string; shortId?: string }>();
   const { isAuthed } = useAdmin();
   const navigate = useNavigate();
   const [post, setPost] = useState<BlogPost | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -68,8 +70,9 @@ export default function PostPage() {
     setPost(null);
     setNotFound(false);
     setError('');
-    if (!id) return;
-    fetchPost(id)
+    if (!id && !shortId) return;
+    const load = shortId ? fetchPostByShortId(shortId) : fetchPost(id!);
+    load
       .then((p) => {
         if (cancelled) return;
         if (p === null) setNotFound(true);
@@ -79,7 +82,7 @@ export default function PostPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, shortId]);
 
   const onCopy = async () => {
     if (!post) return;
@@ -92,12 +95,26 @@ export default function PostPage() {
     }
   };
 
+  // 分享：复制短链接 <站点>/#<短ID>（收不进剪贴板时降级 prompt 手动复制）
+  const onShare = async () => {
+    if (!post?.shortId) return;
+    const url = `${window.location.origin}/#${post.shortId}`;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('no clipboard api');
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      window.prompt('复制分享链接：', url);
+    }
+  };
+
   const onDelete = async () => {
-    if (!post || !id) return;
+    if (!post) return;
     if (!window.confirm(`确认删除《${post.title}》？删除后不可恢复。`)) return;
     setDeleting(true);
     try {
-      await deletePost(id);
+      await deletePost(post.id);
       navigate('/', { replace: true });
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err));
@@ -127,6 +144,11 @@ export default function PostPage() {
               {t}
             </span>
           ))}
+          {post.shortId && (
+            <button type="button" className="post__share" onClick={onShare}>
+              {shareCopied ? '已复制 ✓' : '分享'}
+            </button>
+          )}
           <button type="button" className="post__copy" onClick={onCopy}>
             {copied ? '已复制 ✓' : '一键复制'}
           </button>

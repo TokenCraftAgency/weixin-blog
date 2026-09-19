@@ -19,5 +19,26 @@
 	// ],
 	"observability": {
 		"enabled": true
-	}
+	},
+	"routes": [
+		{
+			"pattern": "weixin-blog.flaspage.top/*",
+			"zone_name": "flaspage.top"
+		},
+		{
+			"pattern": "weixin-blog.flaspage.top",
+			"zone_name": "flaspage.top",
+			"custom_domain": true,
+			"enabled": true,
+			"previews_enabled": false
+		}
+	],
+	"kv_namespaces": [
+		{
+			"id": "f6601af62a6147dd9e51924d09f0d5fc",
+			"binding": "BLOG_KV"
+		}
+	],
+	"workers_dev": true,
+	"preview_urls": true
 }

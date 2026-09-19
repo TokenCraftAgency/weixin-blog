@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import type { SyncPostInput } from '../shared/types';
-import { deletePost, getPost, getPostIndex, upsertPost } from './kv';
+import { deletePost, getPost, getPostByShortId, getPostIndex, upsertPost } from './kv';
 import { passwordOk, SESSION_TTL_MS, signSession, verifySession } from './auth';
 
 type Env = {
@@ -46,6 +46,19 @@ api.get('/posts', async (c) => {
     total: filtered.length,
     hasMore: offset + limit < filtered.length,
   });
+});
+
+/** 短 ID 访问文章（分享链接 /#<shortId> 的解析端点；注册在 /posts/:id 之前） */
+const SHORT_ID_RE = /^[23456789a-hjkmnp-tv-z]{6}$/;
+
+api.get('/posts/short/:shortId', async (c) => {
+  const shortId = c.req.param('shortId').toLowerCase();
+  if (!SHORT_ID_RE.test(shortId)) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: '短 ID 格式不合法' } }, 400);
+  }
+  const post = await getPostByShortId(c.env.BLOG_KV, shortId);
+  if (!post) return c.json({ error: { code: 'NOT_FOUND', message: '文章不存在' } }, 404);
+  return c.json({ post });
 });
 
 api.get('/posts/:id', async (c) => {
