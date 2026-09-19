@@ -1307,6 +1307,11 @@ img {
     border-radius: 0;
   }
 
+  /* 详情页卡片与顶部导航栏贴合（清零 .main 顶部内边距） */
+  .main:has(.post) {
+    padding-top: 0;
+  }
+
   .post__meta {
     gap: 8px;
   }
