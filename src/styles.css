@@ -927,6 +927,40 @@ img {
   color: #ad6800;
 }
 
+/* 日志分页条 */
+.logs__pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.logs__pager-info {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.logs__pager-btn {
+  padding: 5px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 13px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.logs__pager-btn:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+
+.logs__pager-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .settings__group {
   border: none;
   padding: 0;
@@ -996,6 +1030,31 @@ img {
   border-radius: 12px;
 }
 
+/* 账户区：设置页底部退出入口（原在导航栏） */
+.settings__account {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.settings__logout {
+  padding: 8px 20px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 13.5px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.settings__logout:hover {
+  border-color: #ffa39e;
+  background: #fff1f0;
+  color: #d4380d;
+}
+
 .settings__dirty {
   font-size: 13px;
   color: #d4380d;
@@ -1017,6 +1076,17 @@ img {
   text-align: center;
   color: var(--ink-3);
   font-size: 13px;
+}
+
+/* 页脚管理员入口：低调但有点击区保障 */
+.footer__admin {
+  padding: 2px 6px;
+  color: var(--ink-3);
+  transition: color 0.15s;
+}
+
+.footer__admin:hover {
+  color: var(--green-dark);
 }
 
 /* ---- 移动端适配（断点覆盖，不改桌面基线规则） ---- */

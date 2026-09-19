@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAdmin } from '../admin';
 import { fetchAdminConfig, fetchLoginLogs, updateSiteConfig, type AdminSiteConfig } from '../api';
 import type { LoginLogEntry, SiteAccess } from '../../shared/types';
@@ -18,6 +18,9 @@ const ACCESS_OPTIONS: { value: SiteAccess; label: string; desc: string }[] = [
 ];
 
 type Tab = 'access' | 'gate' | 'logs';
+
+/** 登录日志分页页大小 */
+const LOGS_PAGE_SIZE = 10;
 
 const TABS: { value: Tab; label: string }[] = [
   { value: 'access', label: '访问权限' },
@@ -42,7 +45,8 @@ const RESULT_LABEL: Record<LoginLogEntry['r'], { text: string; cls: string }> = 
 
 /** 管理员设置页（/admin/settings）：访问权限 / 门禁参数 / 登录日志 */
 export default function SettingsPage() {
-  const { isAuthed } = useAdmin();
+  const { isAuthed, logout } = useAdmin();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('access');
   const [config, setConfig] = useState<AdminSiteConfig | null>(null);
   const [accessDraft, setAccessDraft] = useState<SiteAccess>('public');
@@ -53,6 +57,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [logs, setLogs] = useState<LoginLogEntry[] | null>(null);
   const [logsError, setLogsError] = useState('');
+  const [logsPage, setLogsPage] = useState(1);
 
   useEffect(() => {
     if (!isAuthed) return;
@@ -71,12 +76,13 @@ export default function SettingsPage() {
     };
   }, [isAuthed]);
 
-  // 日志切到该 tab 时加载（重复进入刷新）
+  // 日志切到该 tab 时加载（重复进入刷新，回到第一页）
   useEffect(() => {
     if (tab !== 'logs' || !isAuthed) return;
     let cancelled = false;
     setLogs(null);
     setLogsError('');
+    setLogsPage(1);
     fetchLoginLogs()
       .then((l) => !cancelled && setLogs(l))
       .catch((err) => !cancelled && setLogsError(err instanceof Error ? err.message : String(err)));
@@ -233,38 +239,79 @@ export default function SettingsPage() {
           {!logsError && logs === null && <div className="state">加载中…</div>}
           {!logsError && logs !== null && logs.length === 0 && <div className="state">暂无登录记录</div>}
           {!logsError && logs !== null && logs.length > 0 && (
-            <table className="logs__table">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>结果</th>
-                  <th>IP</th>
-                  <th>指纹</th>
-                  <th>UA</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((l, i) => (
-                  <tr key={`${l.t}-${i}`}>
-                    <td>{fmtTime(l.t)}</td>
-                    <td>
-                      <span className={`logs__badge ${RESULT_LABEL[l.r].cls}`}>{RESULT_LABEL[l.r].text}</span>
-                    </td>
-                    <td>{l.ip}</td>
-                    <td className="logs__mono">{l.fp || '—'}</td>
-                    <td className="logs__ua" title={l.ua}>
-                      {l.ua || '—'}
-                    </td>
+            <>
+              <table className="logs__table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>结果</th>
+                    <th>IP</th>
+                    <th>指纹</th>
+                    <th>UA</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {logs
+                    .slice((logsPage - 1) * LOGS_PAGE_SIZE, logsPage * LOGS_PAGE_SIZE)
+                    .map((l, i) => (
+                      <tr key={`${l.t}-${i}`}>
+                        <td>{fmtTime(l.t)}</td>
+                        <td>
+                          <span className={`logs__badge ${RESULT_LABEL[l.r].cls}`}>{RESULT_LABEL[l.r].text}</span>
+                        </td>
+                        <td>{l.ip}</td>
+                        <td className="logs__mono">{l.fp || '—'}</td>
+                        <td className="logs__ua" title={l.ua}>
+                          {l.ua || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              {logs.length > LOGS_PAGE_SIZE && (
+                <div className="logs__pager">
+                  <button
+                    type="button"
+                    className="logs__pager-btn"
+                    disabled={logsPage <= 1}
+                    onClick={() => setLogsPage((p) => p - 1)}
+                  >
+                    上一页
+                  </button>
+                  <span className="logs__pager-info">
+                    第 {logsPage} / {Math.ceil(logs.length / LOGS_PAGE_SIZE)} 页 · 共 {logs.length} 条
+                  </span>
+                  <button
+                    type="button"
+                    className="logs__pager-btn"
+                    disabled={logsPage >= Math.ceil(logs.length / LOGS_PAGE_SIZE)}
+                    onClick={() => setLogsPage((p) => p + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
 
       {notice && <div className="settings__notice">{notice}</div>}
       {error && <div className="state state--error">{error}</div>}
+
+      {/* 退出入口（原在导航栏） */}
+      <div className="settings__account">
+        <button
+          type="button"
+          className="settings__logout"
+          onClick={() => {
+            logout();
+            navigate('/');
+          }}
+        >
+          退出登录
+        </button>
+      </div>
     </div>
   );
 }
